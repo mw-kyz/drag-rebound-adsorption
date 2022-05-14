@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+  <script>
+    document.documentElement.style.fontSize = document.documentElement.clientWidth / 37.5 + 'px'
+  </script>
+  <style>
+    body {
+      margin: 0;
+    }
+
+    div {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .blank-cell-group,
+    .char-cell-group {
+      width: 100%;
+      flex-direction: row;
+    }
+
+    .char-cell-group {
+      flex-wrap: wrap;
+      margin-top: 5rem;
+    }
+
+    .blank-cell-group .cell-item,
+    .char-cell-group .cell-item {
+      width: 25%;
+      height: 25vw;
+      padding: .5rem;
+      box-sizing: border-box;
+    }
+
+    .blank-cell-group .cell-item .wrapper,
+    .char-cell-group .cell-item .wrapper {
+      width: 100%;
+      height: 100%;
+      border: .1rem solid #ddd;
+      box-sizing: border-box;
+    }
+
+    .char-cell-group .cell-item .wrapper {
+      border: none;
+      background-color: orange;
+      font-size: 3rem;
+      justify-content: center;
+      align-items: center;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="container">
+      <div class="blank-cell-group">
+        <div class="cell-item">
+          <div class="wrapper"></div>
+        </div>
+        <div class="cell-item">
+          <div class="wrapper"></div>
+        </div>
+        <div class="cell-item">
+          <div class="wrapper"></div>
+        </div>
+        <div class="cell-item">
+          <div class="wrapper"></div>
+        </div>
+      </div>
+      <div class="char-cell-group"></div>
+    </div>
+  </div>
+
+  <script>
+    ;(function () {
+      const idioms = ['天下第一', '永远的神', 'yyds', '笑傲江湖'],
+            oCharCellGroup = document.querySelector('.char-cell-group'),
+            oBlanks = document.querySelectorAll('.blank-cell-group .wrapper')
+
+      let charCollection = [],
+          oChars = null,
+          charAreas = [], // 存储所有字符盒子的初始位置，方便回弹到原来的位置
+          blankAreas = [], // 存储四个空盒子的初始位置
+          resArr = [undefined, undefined, undefined, undefined], // 存储移动结果
+          startX = 0, // 鼠标x位置
+          startY = 0, // 鼠标y位置
+          cellX = 0, // 盒子左边的距离
+          cellY = 0, // 盒子上边的距离
+          mouseX = 0, // 鼠标位置离当前盒子左边的距离
+          mouseY = 0 // 鼠标位置离当前盒子上边的距离
+
+      const init = () => {
+        charCollection = formatCharsArr()
+
+        render()
+
+        oChars = oCharCellGroup.querySelectorAll('.cell-item .wrapper')
+        
+        getAreas(oChars, charAreas)
+
+        getAreas(oBlanks, blankAreas)
+        
+        bindEvent()
+      }
+
+      function render () {
+        let list = ''
+
+        charCollection.forEach((char, index) => {
+          list += charCellTpl(char, index)
+        })
+
+        oCharCellGroup.innerHTML = list
+      }
+
+      function bindEvent () {
+        let oChar = null
+
+        for (let i = 0; i < oChars.length; i++) {
+          oChar = oChars[i]
+
+          oChar.addEventListener('touchstart', handleTouchStart, false)
+          oChar.addEventListener('touchmove', handleTouchMove, false)
+          oChar.addEventListener('touchend', handleTouchEnd, false)
+        }
+      }
+
+      function handleTouchStart (e) {
+        // 如果移动元素是已经填进空白框的元素，则需要将它从resArr删除
+        const hasAddIdx = resArr.findIndex((item) => item && item.el === this)
+        resArr[hasAddIdx] = undefined 
+        // 获取元素宽高
+        const cellW = this.offsetWidth,
+              cellH = this.offsetHeight
+
+        cellX = this.offsetLeft
+        cellY = this.offsetTop
+
+        startX = e.touches[0].clientX
+        startY = e.touches[0].clientY
+
+        mouseX = startX - cellX
+        mouseY = startY - cellY
+
+        // 原来盒子的宽高都是100%，所以需要重新设置成固定大小，否则移动后，会占满父级盒子
+        this.style.width = (cellW / 10) + 'rem'
+        this.style.height = (cellH / 10) + 'rem'
+
+        // 元素设置成浮动，便于移动
+        this.style.position = 'fixed'
+        // 移动的时候，显示在所有元素之上，避免被遮挡
+        this.style.zIndex = 100
+
+        setPosition(this, cellX, cellY)
+      }
+
+      function handleTouchMove (e) {
+        e.preventDefault()
+        // 鼠标移动坐标
+        const moveX = e.touches[0].clientX,
+              moveY = e.touches[0].clientY
+
+        cellX = moveX - mouseX
+        cellY = moveY - mouseY
+
+        setPosition(this, cellX, cellY)
+      }
+
+      function handleTouchEnd (e) {
+        // 移动结束后，还原 z-index
+        this.style.zIndex = 1
+
+        const blankWidth = oBlanks[0].offsetWidth,
+              blankHeight = oBlanks[0].offsetHeight
+
+        for (let i = 0; i < blankAreas.length; i++) {
+          if (resArr[i] !== undefined) {
+            continue
+          }
+
+          let { startX, startY } = blankAreas[i]
+
+          // 符合条件，自动吸附
+          // 第一个条件是从右往左进，判断的左顶点
+          // 第二个条件是从左往右进，判断的右顶点
+          if (
+            (
+              cellX > startX && 
+              cellX < startX + blankWidth / 2 &&
+              cellY > startY &&
+              cellY < startY + blankHeight / 2
+            ) ||
+            (
+              cellX + blankWidth > startX + blankWidth / 2 &&
+              cellX + blankWidth < startX + blankWidth &&
+              cellY > startY &&
+              cellY < startY + blankHeight / 2
+            )
+          ) {
+            // 将字符填入空白框
+            setPosition(this, startX, startY)
+            // 记录该空白框的元素
+            setResArr(this, i)
+
+            // 如果填满了
+            if (!resArr.includes(undefined)) {
+              setTimeout(() => {
+                // 检查是否填写正确
+                if (!checkResult()) {
+                  alert('很遗憾，回答错误')
+                } else {
+                  alert('恭喜你，答对了！')
+                }
+                // 重置
+                resetPosition()
+              }, 500)
+            }
+            return
+          }
+        }
+
+        const _index = Number(this.dataset.index),
+              charArea = charAreas[_index]
+
+        // 停止移动后，复原字符位置
+        setPosition(this, charArea.startX, charArea.startY)
+      }
+
+      function getAreas (domCollection, arrWrapper) {
+        let startX = 0,
+            startY = 0,
+            oItem = null
+        
+        for (let i = 0; i < domCollection.length; i++) {
+          oItem = domCollection[i]
+          startX = oItem.offsetLeft
+          startY = oItem.offsetTop
+
+          arrWrapper.push({
+            startX,
+            startY
+          })
+        }
+      }
+
+      // 将成语拆分成单个字符并随机打乱
+      function formatCharsArr () {
+        let _arr = []
+
+        idioms.forEach(item => {
+          _arr = _arr.concat(item.split(''))
+        })
+
+        return _arr.sort(randomSort)
+      }
+
+      function randomSort (a, b) {
+        return Math.random() > 0.5 ? -1 : 1
+      }
+
+      // 渲染模板
+      function charCellTpl (char, index) {
+        return (`
+          <div class="cell-item">
+            <div class="wrapper" data-index="${ index }">${ char }</div>
+          </div>
+        `)
+      }
+
+      function setPosition (el, x, y) {
+        el.style.left = x / 10 + 'rem'
+        el.style.top = y / 10 + 'rem'
+      }
+
+      // 重置字符下标
+      function resetPosition () {
+        resArr.forEach(item => {
+          const el = item.el,
+                index = Number(el.dataset.index),
+                { startX, startY } = charAreas[index]
+
+          setPosition(el, startX, startY)
+        })
+
+        resArr = [undefined, undefined, undefined, undefined]
+        startX = 0
+        startY = 0
+        cellX = 0
+        cellY = 0
+        mouseX = 0
+        mouseY = 0
+      }
+
+      function setResArr (el, index) {
+        resArr[index] = {
+          char: el.innerText,
+          el
+        }
+      }
+
+      function checkResult () {
+        let idiom = ''
+
+        resArr.forEach(item => {
+          idiom += item.char
+        })
+
+        return idioms.find(item => item === idiom)
+      }
+
+      init()
+    })()
+  </script>
+</body>
+</html>
